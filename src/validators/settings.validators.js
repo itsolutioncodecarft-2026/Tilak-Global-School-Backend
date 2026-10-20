@@ -1,0 +1,37 @@
+import { z } from 'zod';
+
+export const updateSettingsSchema = z.object({
+  schoolName:           z.string().max(200).trim().optional(),
+  schoolSubtitle:       z.string().max(200).trim().optional(),
+  cbseAffiliationNo:    z.string().max(50).trim().optional(),
+  cbseSchoolCode:       z.string().max(50).trim().optional(),
+  topBarTagline:        z.string().max(300).trim().optional(),
+  footerDescription:    z.string().max(500).trim().optional(),
+  phone:                z.string().max(20).trim().optional(),
+  admissionsPhone:      z.string().max(20).trim().optional(),
+  email:                z.string().email().optional().or(z.literal('')),
+  admissionsEmail:      z.string().email().optional().or(z.literal('')),
+  address:              z.string().max(500).trim().optional(),
+  pinCode:              z.string().max(10).trim().optional(),
+  officeTimings:        z.string().max(200).trim().optional(),
+  whatsappNumber:       z.string().max(20).trim().optional(),
+  whatsappMessage:      z.string().max(500).trim().optional(),
+  mapEmbedUrl:          z.string().max(1000).trim().optional(),
+  admissionSession:     z.string().max(20).trim().optional(),
+  admissionBannerText:  z.string().max(300).trim().optional(),
+  admissionsOpen:       z.boolean().optional(),
+  directorName:         z.string().max(150).trim().optional(),
+  directorDesignation:  z.string().max(150).trim().optional(),
+  directorMessage:      z.string().max(5000).trim().optional(),
+  socialLinks: z.object({
+    facebook:  z.string().url().optional().or(z.literal('')),
+    instagram: z.string().url().optional().or(z.literal('')),
+    youtube:   z.string().url().optional().or(z.literal('')),
+    other:     z.string().url().optional().or(z.literal('')),
+  }).optional(),
+  brandColors: z.object({
+    primary:   z.string().regex(/^#[0-9A-Fa-f]{6}$/, 'Invalid HEX color').optional(),
+    secondary: z.string().regex(/^#[0-9A-Fa-f]{6}$/, 'Invalid HEX color').optional(),
+  }).optional(),
+  privacyPolicyText: z.string().max(10000).trim().optional(),
+});

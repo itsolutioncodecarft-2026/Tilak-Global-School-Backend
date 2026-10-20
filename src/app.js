@@ -3,9 +3,8 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
-import path from 'path';
 
-import { CLIENT_URL, NODE_ENV, UPLOAD_DIR } from './config/env.js';
+import { NODE_ENV, UPLOAD_DIR } from './config/env.js';
 
 // Route imports
 import healthRouter    from './routes/health.js';
@@ -29,62 +28,70 @@ import { generalApiLimiter } from './middleware/rateLimiter.middleware.js';
 
 const app = express();
 
-// Trust proxy (needed for correct req.ip behind Nginx / reverse proxy)
+// Trust proxy — required for correct req.ip behind Render / Vercel / Nginx
 app.set('trust proxy', 1);
-
-// Remove X-Powered-By header (defence in depth)
 app.disable('x-powered-by');
 
-// Security headers via Helmet
+// ── Security headers ──────────────────────────────────────────────────────────
 app.use(helmet({
-  crossOriginResourcePolicy: { policy: 'same-origin' },
-  contentSecurityPolicy: false, // Disabled — frontend handles its own CSP
+  crossOriginResourcePolicy: { policy: 'cross-origin' }, // allow images from frontend
+  contentSecurityPolicy:     false,                       // frontend handles its own CSP
 }));
 
-// Request logging — skip in test
+// ── Request logging ───────────────────────────────────────────────────────────
 if (NODE_ENV !== 'test') {
   app.use(morgan('dev'));
 }
 
-// Body parsers — 1 MB limit prevents large payload attacks
+// ── Body parsers ──────────────────────────────────────────────────────────────
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 app.use(cookieParser());
 
-// CORS — allow CLIENT_URL (supports comma-separated list for dev multi-port)
-const allowedOrigins = (CLIENT_URL || 'http://localhost:3000')
-  .split(',')
-  .map(o => o.trim());
+// ── CORS ──────────────────────────────────────────────────────────────────────
+// Production: tilakglobalschool.com + admin-portal subdomain
+// Development: localhost:3000 + localhost:3001
+// Also allow all *.vercel.app preview deployments
+const ALLOWED_ORIGINS = [
+  'https://tilakglobalschool.com',
+  'https://www.tilakglobalschool.com',
+  'https://admin-portal.tilakglobalschool.com',
+  'http://localhost:3000',
+  'http://localhost:3001',
+];
 
 app.use(cors({
-  origin: (origin, cb) => {
-    // Allow requests with no origin (server-to-server, curl, Postman)
-    if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
-    cb(new Error('Not allowed by CORS'));
+  origin: function (origin, callback) {
+    // Allow server-to-server requests (curl, Postman, health checks)
+    if (!origin) return callback(null, true);
+    // Allow listed origins
+    if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+    // Allow Vercel preview deployments (*.vercel.app)
+    if (origin.endsWith('.vercel.app')) return callback(null, true);
+    return callback(new Error('Not allowed by CORS'));
   },
-  credentials: true,
-  methods:     ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials:    true,
+  methods:        ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Cookie'],
+  exposedHeaders: ['Set-Cookie'],
+  maxAge:         86400,
 }));
 
-// Serve uploaded files as static
-// dotfile access disabled — prevents .htaccess / .env leaks
+// ── Static uploads ────────────────────────────────────────────────────────────
 app.use('/uploads', express.static(UPLOAD_DIR, {
   dotfiles: 'deny',
   index:    false,
   maxAge:   '1d',
 }));
 
-// Global rate limiter on all /api routes
+// ── Rate limiter ──────────────────────────────────────────────────────────────
 app.use('/api', generalApiLimiter);
 
-// Health check
+// ── Routes ────────────────────────────────────────────────────────────────────
 app.use('/api/health', healthRouter);
+app.use('/api/auth',   authRouter);
 
-// Auth
-app.use('/api/auth', authRouter);
-
-// Public read-only routes
+// Public read-only
 app.use('/api/content',      publicContentRouter);
 app.use('/api/gallery',      publicGalleryRouter);
 app.use('/api/news',         publicNewsRouter);
@@ -95,7 +102,7 @@ app.use('/api/settings',     publicSettingsRouter);
 app.use('/api/contact',      publicContactRouter);
 app.use('/api/applications', publicApplicationRouter);
 
-// Admin routes (auth enforced inside each router)
+// Admin (auth enforced inside each router)
 app.use('/api/admin/users',        userRouter);
 app.use('/api/admin/dashboard',    dashboardRouter);
 app.use('/api/admin/applications', adminApplicationRouter);
@@ -108,7 +115,7 @@ app.use('/api/admin/faqs',         adminFaqRouter);
 app.use('/api/admin/settings',     adminSettingsRouter);
 app.use('/api/admin/contact',      adminContactRouter);
 
-// 404 + global error handler — must be last
+// ── 404 + global error handler (must be last) ─────────────────────────────────
 app.use(notFound);
 app.use(errorHandler);
 

@@ -1,19 +1,27 @@
 /**
  * Authentication middleware.
  *
- * Reads the JWT from the httpOnly cookie named 'adminToken'.
- * If valid, attaches the decoded payload to req.admin and calls next().
- * If missing or invalid, returns 401.
+ * Reads JWT from:
+ *   1. httpOnly cookie 'adminToken'  (primary — set by login endpoint)
+ *   2. Authorization: Bearer <token> (fallback — for API testing / mobile)
+ *
+ * Returns JSON on ALL failures (never HTML).
  */
 import jwt from 'jsonwebtoken';
 import { JWT_SECRET } from '../config/env.js';
-import { sendError } from '../utils/response.js';
 
 export function authenticate(req, res, next) {
-  const token = req.cookies?.adminToken;
+  // 1. Cookie (preferred — httpOnly, not accessible to JS)
+  // 2. Bearer token header (fallback)
+  const token =
+    req.cookies?.adminToken ||
+    req.headers.authorization?.replace(/^Bearer\s+/i, '');
 
   if (!token) {
-    return sendError(res, { statusCode: 401, message: 'Authentication required. Please log in.' });
+    return res.status(401).json({
+      success: false,
+      message: 'Not authorized, please login',
+    });
   }
 
   try {
@@ -25,6 +33,6 @@ export function authenticate(req, res, next) {
       err.name === 'TokenExpiredError'
         ? 'Session expired. Please log in again.'
         : 'Invalid token. Please log in again.';
-    return sendError(res, { statusCode: 401, message });
+    return res.status(401).json({ success: false, message });
   }
 }

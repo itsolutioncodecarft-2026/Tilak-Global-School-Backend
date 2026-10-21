@@ -1,10 +1,16 @@
-import express from 'express';
-import helmet from 'helmet';
-import morgan from 'morgan';
+import express    from 'express';
+import helmet     from 'helmet';
+import morgan     from 'morgan';
 import cookieParser from 'cookie-parser';
-import cors from 'cors';
+import cors       from 'cors';
+import path       from 'path';
+import { fileURLToPath } from 'url';
 
 import { NODE_ENV, UPLOAD_DIR } from './config/env.js';
+
+// ES Module __dirname equivalent
+const __filename = fileURLToPath(import.meta.url);
+const __dirname  = path.dirname(__filename);
 
 // Route imports
 import healthRouter    from './routes/health.js';
@@ -34,8 +40,9 @@ app.disable('x-powered-by');
 
 // ── Security headers ──────────────────────────────────────────────────────────
 app.use(helmet({
-  crossOriginResourcePolicy: { policy: 'cross-origin' }, // allow images from frontend
-  contentSecurityPolicy:     false,                       // frontend handles its own CSP
+  // Allow images to be loaded cross-origin (frontend on different domain)
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+  contentSecurityPolicy:     false,
 }));
 
 // ── Request logging ───────────────────────────────────────────────────────────
@@ -44,14 +51,11 @@ if (NODE_ENV !== 'test') {
 }
 
 // ── Body parsers ──────────────────────────────────────────────────────────────
-app.use(express.json({ limit: '1mb' }));
-app.use(express.urlencoded({ extended: true, limit: '1mb' }));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser());
 
 // ── CORS ──────────────────────────────────────────────────────────────────────
-// Production: tilakglobalschool.com + admin-portal subdomain
-// Development: localhost:3000 + localhost:3001
-// Also allow all *.vercel.app preview deployments
 const ALLOWED_ORIGINS = [
   'https://tilakglobalschool.com',
   'https://www.tilakglobalschool.com',
@@ -62,13 +66,13 @@ const ALLOWED_ORIGINS = [
 
 app.use(cors({
   origin: function (origin, callback) {
-    // Allow server-to-server requests (curl, Postman, health checks)
+    // Allow server-to-server / Postman / curl (no origin header)
     if (!origin) return callback(null, true);
-    // Allow listed origins
+    // Allow listed production + dev origins
     if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
-    // Allow Vercel preview deployments (*.vercel.app)
+    // Allow all Vercel preview deployments (*.vercel.app)
     if (origin.endsWith('.vercel.app')) return callback(null, true);
-    return callback(new Error('Not allowed by CORS'));
+    return callback(new Error('CORS blocked: ' + origin));
   },
   credentials:    true,
   methods:        ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
@@ -78,6 +82,7 @@ app.use(cors({
 }));
 
 // ── Static uploads ────────────────────────────────────────────────────────────
+// UPLOAD_DIR is already an absolute path (resolved in env.js)
 app.use('/uploads', express.static(UPLOAD_DIR, {
   dotfiles: 'deny',
   index:    false,

@@ -4,25 +4,15 @@
  * Public:
  *   GET /api/settings               — safe public fields only
  *
- * Admin (super_admin only):
+ * Admin:
  *   GET  /api/admin/settings        — full settings document
  *   PUT  /api/admin/settings        — update any field(s)
  *   POST /api/admin/settings/logo           — upload logo image
  *   POST /api/admin/settings/favicon        — upload favicon image
  *   POST /api/admin/settings/director-photo — upload director portrait
- *
- * Public fields returned to visitors (no auth):
- *   schoolName, schoolSubtitle, topBarTagline, footerDescription,
- *   phone, admissionsPhone, email, admissionsEmail, address, pinCode,
- *   officeTimings, whatsappNumber, whatsappMessage, mapEmbedUrl,
- *   admissionSession, admissionBannerText, admissionsOpen,
- *   directorName, directorDesignation, directorMessage, directorPhotoUrl,
- *   logoUrl, socialLinks, brandColors, cbseAffiliationNo, cbseSchoolCode
- *
- * Fields NOT exposed publicly: updatedBy, updatedAt, privacyPolicyText (admin only)
  */
-import path from 'path';
-import fs   from 'fs';
+import path         from 'path';
+import fs           from 'fs';
 import SiteSettings from '../models/SiteSettings.model.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { logActivity }  from '../utils/activityLogger.js';
@@ -47,7 +37,6 @@ const PUBLIC_FIELDS = [
 export const getPublicSettings = asyncHandler(async (req, res) => {
   const doc = await SiteSettings.getSingleton();
 
-  // Return only safe public fields
   const settings = {};
   for (const field of PUBLIC_FIELDS) {
     settings[field] = doc[field];
@@ -64,19 +53,14 @@ export const getPublicSettings = asyncHandler(async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 export const getAdminSettings = asyncHandler(async (req, res) => {
   const settings = await SiteSettings.getSingleton();
-
-  return sendSuccess(res, {
-    message: 'Settings retrieved.',
-    data:    { settings },
-  });
+  return sendSuccess(res, { message: 'Settings retrieved.', data: { settings } });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ADMIN  PUT /api/admin/settings
 // ─────────────────────────────────────────────────────────────────────────────
 export const updateSettings = asyncHandler(async (req, res) => {
-  // Strip any attempt to set file URL fields via this endpoint
-  // (those go through dedicated upload endpoints)
+  // Strip file URL fields — those only go through dedicated upload endpoints
   const { logoUrl, faviconUrl, directorPhotoUrl, ...safeUpdates } = req.body;
 
   const settings = await SiteSettings.updateSingleton(safeUpdates, req.admin.id);
@@ -90,29 +74,34 @@ export const updateSettings = asyncHandler(async (req, res) => {
   });
 
   return sendSuccess(res, {
-    message:  'Settings updated successfully.',
-    data:     { settings },
+    message: 'Settings updated successfully.',
+    data:    { settings },
   });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Helper — handle media upload, delete old file, update settings field
+// Helper — handle media file upload, delete old file, update settings field
 // ─────────────────────────────────────────────────────────────────────────────
 async function handleMediaUpload(req, res, fieldName, logDetail) {
   if (!req.file) {
     return res.status(400).json({ success: false, message: 'No file uploaded.' });
   }
 
-  // Build the public URL path (relative to server root)
   const relativePath = `/uploads/media/${req.file.filename}`;
 
-  // Delete old file if it exists and is stored locally
+  // Delete old file if it is stored locally
   const current = await SiteSettings.getSingleton();
   const oldUrl  = current[fieldName];
   if (oldUrl && oldUrl.startsWith('/uploads/')) {
-    const oldAbsPath = path.join(UPLOAD_DIR, '..', oldUrl);
-    if (fs.existsSync(oldAbsPath)) {
-      fs.unlinkSync(oldAbsPath);
+    try {
+      // BUG FIX: was path.join(UPLOAD_DIR, '..', oldUrl) — wrong path
+      // CORRECT: strip the leading '/uploads/' prefix, then join with UPLOAD_DIR
+      const relativeFile = oldUrl.replace(/^\/uploads\//, '');
+      const absPath      = path.join(UPLOAD_DIR, relativeFile);
+      if (fs.existsSync(absPath)) fs.unlinkSync(absPath);
+    } catch {
+      // Non-blocking — old file deletion failure must not block the response
+      console.warn('[Settings] Could not delete old file:', oldUrl);
     }
   }
 
@@ -126,7 +115,7 @@ async function handleMediaUpload(req, res, fieldName, logDetail) {
     action:      'upload',
     module:      'settings',
     targetLabel: 'Site Settings',
-    detail:      logDetail,
+    detail:      `${logDetail}: ${req.file.filename}`,
   });
 
   return sendSuccess(res, {

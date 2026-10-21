@@ -5,7 +5,8 @@ export const createDocumentSchema = z.object({
   title:     z.string().min(1, 'Title is required').max(300).trim(),
   category:  z.enum(DOCUMENT_CATEGORIES, { errorMap: () => ({ message: 'Invalid category' }) }),
   page:      z.enum(DOCUMENT_PAGE_LIST,  { errorMap: () => ({ message: 'Invalid page'     }) }),
-  fileType:  z.enum(DOCUMENT_FILE_TYPES, { errorMap: () => ({ message: 'Invalid file type'}) }),
+  // fileType is inferred from the uploaded file's MIME type by the controller — not sent by the frontend
+  fileType:  z.enum(DOCUMENT_FILE_TYPES, { errorMap: () => ({ message: 'Invalid file type'}) }).optional(),
   issueDate: z.string().optional().transform(v => v ? new Date(v) : null),
   status:    z.enum(['published', 'draft']).optional().default('published'),
 });

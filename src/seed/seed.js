@@ -1,5 +1,5 @@
 /**
- * Seed script — run once to initialise:
+ * Seed script — run once (or re-run safely) to initialise:
  *   1. Super-admin user account (from .env or defaults)
  *   2. Default SiteSettings document
  *   3. Default FeeRow stubs (amounts null — school fills via admin)
@@ -9,7 +9,13 @@
  * Usage:
  *   node src/seed/seed.js
  *
- * Safe to re-run — uses upsert / findOrCreate patterns, never duplicates.
+ * Safe to re-run — upsert patterns, never duplicates.
+ *
+ * PASSWORD STRATEGY:
+ *   On every run, the admin password is ALWAYS reset to the value from .env.
+ *   We use findByIdAndUpdate + $set (NOT save()) so no pre-save hook runs.
+ *   This guarantees the hash in DB always matches the plain-text in .env —
+ *   even if a previous seed run created a double-hashed or stale hash.
  */
 import 'dotenv/config';
 import mongoose from 'mongoose';
@@ -22,31 +28,48 @@ import FeeRow, { FEE_CLASS_GROUPS } from '../models/FeeRow.model.js';
 import Faq from '../models/Faq.model.js';
 import Counter from '../models/Counter.model.js';
 
-// Read credentials from env — use .com domain to match production
 const ADMIN_EMAIL    = process.env.ADMIN_EMAIL    || 'admin@tilakglobalschool.com';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'ChangeMe123!';
 const ADMIN_NAME     = process.env.ADMIN_NAME     || 'Super Admin';
 
 // ── Admin user ─────────────────────────────────────────────────────────────────
 async function seedAdminUser() {
+  // Always hash from the plain-text env value
+  const passwordHash = await bcrypt.hash(ADMIN_PASSWORD, 12);
+
   const existing = await AdminUser.findOne({ email: ADMIN_EMAIL });
+
   if (existing) {
-    console.log(`ℹ️  Admin user already exists: ${ADMIN_EMAIL}`);
-    return existing;
+    // ALWAYS reset the password using $set (bypasses ALL pre-save hooks)
+    // This fixes double-hashed passwords from older seed runs
+    await AdminUser.findByIdAndUpdate(
+      existing._id,
+      {
+        $set: {
+          passwordHash,
+          name:        ADMIN_NAME,
+          role:        'super_admin',
+          permissions: DEFAULT_PERMISSIONS.super_admin,
+          isActive:    true,
+        },
+      },
+      { runValidators: false }
+    );
+    console.log(`✅ Admin user password reset: ${ADMIN_EMAIL}`);
+    return;
   }
 
-  const passwordHash = await bcrypt.hash(ADMIN_PASSWORD, 12);
+  // User doesn't exist — create fresh
   const admin = await AdminUser.create({
-    name:         ADMIN_NAME,
-    email:        ADMIN_EMAIL,
+    name:        ADMIN_NAME,
+    email:       ADMIN_EMAIL,
     passwordHash,
-    role:         'super_admin',
-    permissions:  DEFAULT_PERMISSIONS.super_admin,
-    isActive:     true,
+    role:        'super_admin',
+    permissions: DEFAULT_PERMISSIONS.super_admin,
+    isActive:    true,
   });
 
   console.log(`✅ Super admin created: ${admin.email}`);
-  return admin;
 }
 
 // ── Site settings singleton ────────────────────────────────────────────────────
@@ -55,7 +78,7 @@ async function seedSiteSettings() {
   console.log('✅ SiteSettings singleton ensured.');
 }
 
-// ── Fee row stubs (one per class group) ───────────────────────────────────────
+// ── Fee row stubs ──────────────────────────────────────────────────────────────
 async function seedFeeRows() {
   for (let i = 0; i < FEE_CLASS_GROUPS.length; i++) {
     const group = FEE_CLASS_GROUPS[i];
@@ -65,7 +88,7 @@ async function seedFeeRows() {
       { upsert: true, returnDocument: 'after' }
     );
   }
-  console.log(`✅ FeeRow stubs seeded: ${FEE_CLASS_GROUPS.join(', ')}`);
+  console.log(`✅ FeeRow stubs: ${FEE_CLASS_GROUPS.join(', ')}`);
 }
 
 // ── Default FAQs ──────────────────────────────────────────────────────────────
@@ -98,7 +121,7 @@ async function seedCounter() {
   await Counter.findByIdAndUpdate(
     'application',
     { $setOnInsert: { _id: 'application', seq: 0 } },
-    { upsert: true, new: true }
+    { upsert: true, returnDocument: 'after' }
   );
   console.log('✅ Application ID counter ensured.');
 }
